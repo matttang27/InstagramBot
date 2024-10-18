@@ -175,6 +175,35 @@ class BrowserSession {
 	}
 
 	/**
+	 * Gets profile data, including # of posts, followers, following & most importantly # of mutuals.
+	 * @param {string} username 
+	 * @returns {Promise<{posts: number, followers: number, following: number, mutuals: number}>}
+	 */
+	async viewProfile(username) {
+		try {
+			await this.page.goto(`https://www.instagram.com/${username}`, {
+				waitUntil: "networkidle2",
+			});
+
+			let [posts, followers, following, mutuals] = await this.page.evaluate(async () => {
+				let posts = parseInt(document.evaluate("\/\/*[contains(text(), ' posts')]",document).iterateNext().children[0].innerText.replace(/,/g, ''))
+				let followers = parseInt(document.evaluate("\/\/*[contains(text(), ' followers')]",document).iterateNext().children[0].innerText.replace(/,/g, ''))
+				let following = parseInt(document.evaluate("\/\/*[contains(text(), ' following')]",document).iterateNext().children[0].innerText.replace(/,/g, ''))
+				let mutualMessage = document.evaluate(`\/\/*[contains(text(), 'Followed by')]`,document).iterateNext().innerText.split("+")
+				//Usernames cannot have + signs
+				//If there isn't a plus, could have 1 or 2 mutuals but doesn't matter
+				let mutuals = mutualMessage.length == 1 ? 0 : parseInt(mutualMessage[1])
+
+				return [posts,followers,following,mutuals];
+			})
+
+			console.log(posts,followers,following,mutuals)
+		} catch (err) {
+			console.error(err);
+		}
+	}
+
+	/**
 	 * Gets a list of followers of a person you follow.
 	 * As the chance of you having lots of mutuals with a person gets lower the more nonmutual people you see
 	 * Use the limit variable to stop searching.

@@ -19,6 +19,7 @@ const ACCOUNTS_SCHEMA = `CREATE TABLE IF NOT EXISTS accounts (
         mutuals_count INTEGER,
         posts_count INTEGER,
         following_status TEXT,
+		request_time TEXT,
         blacklisted INTEGER DEFAULT 0,
         user_interacted INTEGER DEFAULT 0,
         follows_me INTEGER DEFAULT 0,
@@ -217,6 +218,32 @@ async function updateFollowersAndFollowing(db, followersList, followingList) {
 }
 
 /**
+ * 
+ * @param {Database} db 
+ * @returns {string} the username of the random mutual
+ */
+async function getRandomMutual(db) {
+	return new Promise((resolve, reject) => {
+        const query = "SELECT * FROM accounts";
+
+        db.all(query, [], (err, row) => {
+
+			let mutuals = row.filter(user => user.i_follow && user.follows_me).map(user => user.username);
+			let randomMutual = mutuals[Math.floor(Math.random() * mutuals.length)];
+            if (err) {
+                console.error("Error fetching random mutual:", err);
+                reject(err);
+            }
+            if (row) {
+                resolve(randomMutual);
+            } else {
+                resolve(null); // No mutuals found
+            }
+        });
+    });
+}
+
+/**
  * Adds a new action to the actions table
  * 
  * @param {Database} db - The SQLite3 database instance
@@ -245,6 +272,7 @@ async function addAction(db, account_id, action_type, time) {
 module.exports = {
 	createUserDatabases,
 	updateFollowersAndFollowing,
-    addAction
+    addAction,
+	getRandomMutual
 };
 
