@@ -3,17 +3,25 @@ const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 const { randomDelay } = require("./helper");
 const { addAction } = require("./database");
 const fs = require("fs");
+const { Browser, Page } = require("puppeteer");
+const { Database } = require("sqlite3");
 
 // Use the stealth plugin to avoid detection by Instagram
 puppeteer.use(StealthPlugin());
 
 class BrowserSession {
 	constructor(username, wsEndpoint, db) {
+		/** @type {Database} */
 		this.db = db;
 		this.username = username;
 		this.wsEndpoint = wsEndpoint;
+
+		/** @type {Browser} */
 		this.browser = null;
+
+		/** @type {Page} */
 		this.page = null;
+
 		this.loggedIn = false;
 	}
 
@@ -164,6 +172,75 @@ class BrowserSession {
 			console.error("Error fetching followers/following:", err);
 			throw new Error("Failed to fetch followers and following.");
 		}
+	}
+
+	/**
+	 * Gets a list of followers of a person you follow.
+	 * As the chance of you having lots of mutuals with a person gets lower the more nonmutual people you see
+	 * Use the limit variable to stop searching.
+	 * 
+	 * 
+	 * @param {string} username 
+	 * @param {number} limit
+	 * @returns {[[string,string]]} - a collection of users and the current follow status with them
+	 * We already know the following & follower status of everyone, so this helps with whether they're requested.
+	 */
+	async getFollowers(username, limit) {
+		try {
+			await this.page.goto(`https://www.instagram.com/${username}`, {
+				waitUntil: "networkidle2",
+			});
+			//get followers button (wanna make this shorter)
+			let button = await this.page.waitForSelector(`::-p-xpath(//li[contains(., ' followers')])`, {timeout: 1000});
+			if (button === null) {throw new Error("followersButton not found")};
+			console.log("FOUND!")
+			await randomDelay();
+			await button.click();
+			await randomDelay();
+			
+
+			//get first user
+			let profile = await this.page.$(".x1dm5mii")
+
+			
+
+			let users = await this.page.evaluate(async (limit) => {
+				//the scrollbox is three parents above
+				let users = []
+				let notFollowedCount = 0;
+				let openUsers = document.getElementsByClassName("x1dm5mii");
+				if (openUsers.length === 0) {return users};
+				let scrollBox = openUsers[0].parentElement.parentElement.parentElement
+				
+				while (true) {
+					await new Promise(r => setTimeout(r,Math.random()*1000+1000));
+					//if no new users appeared from the scrollbox
+					if (openUsers.length - 1 <= users.length) {break}
+					if (notFollowedCount > limit) {break}
+					//skip first user, usually us
+					for (var i=users.length+1;i<openUsers.length;i++) {
+						let button = openUsers[i].getElementsByTagName("button")[0]
+						let buttonContent = button.textContent;
+						if (buttonContent === "Follow") {notFollowedCount++}
+						//trust the process
+						let username = button.parentElement.parentElement.previousSibling.firstChild.firstChild.firstChild.textContent
+						users.push([username,buttonContent])
+					}
+					scrollBox.scrollBy(0,2000);
+					
+				}
+
+				return users;
+				
+			}, limit)
+
+			console.log(users);
+		}
+		catch (err) {
+			console.error(err);
+		}
+		
+
 	}
 
 	/**

@@ -6,7 +6,7 @@ const BrowserSession = require('./BrowserSession');
 const USERNAME = "matttang27_hasnolife";
 const PASSWORD = "********";
 
-const DEBUGLIST = false; // Whether to fetch follower/following list from Instagram or txt files
+const DEBUGLIST = true; // Whether to fetch follower/following list from Instagram or txt files
 
 (async function () {
     try {
@@ -34,10 +34,18 @@ const DEBUGLIST = false; // Whether to fetch follower/following list from Instag
         }
 
         // Update followers and following in the database
-        await updateFollowersAndFollowing(db, followers, following);
+        //await updateFollowersAndFollowing(db, followers, following);
 
-        console.log("Followers and following lists updated successfully.");
+        await session.getFollowers("ac_doge_1124",20);
     } catch (err) {
         console.error("An error occurred:", err);
     }
 })();
+
+
+/*
+- Update followers and following
+    - WORRY ABOUT DETECTING MANUAL STUFF AFTER YOU'VE FINISHED AUTOMATION
+- Unfollow people who haven't followed back
+- Get a random mutual & look at all their followers
+*/
