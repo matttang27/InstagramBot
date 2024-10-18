@@ -1,28 +1,43 @@
-const { connectToBrowser, loginToInstagram, fetchFollowersAndFollowing } = require("./automation");
-const { createUserDatabases, updateFollowersAndFollowing } = require("./database");
 const fs = require('fs');
+const { createUserDatabases, updateFollowersAndFollowing } = require('./database');
+const BrowserSession = require('./BrowserSession');
 
 /** Instagram login credentials (change accordingly) */
-const USERNAME = "********";
+const USERNAME = "matttang27_hasnolife";
 const PASSWORD = "********";
 
-const DEBUGLIST = true; //Whether to fetch follower following list from instagram or txt files
+const DEBUGLIST = false; // Whether to fetch follower/following list from Instagram or txt files
 
 (async function () {
-    let wsEndpoint = fs.readFileSync('../ws.txt','utf-8')
-	const [page, browser] = await connectToBrowser(wsEndpoint); // Establish connection to the browser
-	// await loginToInstagram(page, username, password); // Log in if needed
-	const db = await createUserDatabases(USERNAME);
+    try {
+        // Read WebSocket endpoint from the file
+        const wsEndpoint = fs.readFileSync('../ws.txt', 'utf-8');
 
-    let followers, following;
-    if (DEBUGLIST) {
-        followers = fs.readFileSync('./followers.txt','utf-8').split(",")
-        following = fs.readFileSync('./following.txt','utf-8').split(",")
-    } else {
-        [followers, following] = await fetchFollowersAndFollowing(page, USERNAME);
+        // Create the user database
+        const db = await createUserDatabases(USERNAME);
+
+        // Initialize a new browser session
+        const session = new BrowserSession(USERNAME, wsEndpoint, db);
+
+        // Connect to the browser
+        await session.connectToBrowser();
+
+        let followers, following;
+        if (DEBUGLIST) {
+            // If in debug mode, read followers and following from text files
+            followers = fs.readFileSync('./followers.txt', 'utf-8').split(",");
+            following = fs.readFileSync('./following.txt', 'utf-8').split(",");
+        } else {
+            // Log into Instagram and fetch the followers/following lists
+            await session.loginToInstagram(PASSWORD);
+            [followers, following] = await session.fetchFollowersAndFollowing();
+        }
+
+        // Update followers and following in the database
+        await updateFollowersAndFollowing(db, followers, following);
+
+        console.log("Followers and following lists updated successfully.");
+    } catch (err) {
+        console.error("An error occurred:", err);
     }
-	await updateFollowersAndFollowing(db, followers, following); // Fetch and log followers/following
 })();
-
-//Loop:
-//Get account data:
