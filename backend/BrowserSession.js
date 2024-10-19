@@ -176,7 +176,7 @@ class BrowserSession {
 
 	/**
 	 * Gets profile data, including # of posts, followers, following & most importantly # of mutuals.
-	 * @param {string} username 
+	 * @param {string} username
 	 * @returns {Promise<{posts: number, followers: number, following: number, mutuals: number}>}
 	 */
 	async viewProfile(username) {
@@ -186,18 +186,113 @@ class BrowserSession {
 			});
 
 			let [posts, followers, following, mutuals] = await this.page.evaluate(async () => {
-				let posts = parseInt(document.evaluate("\/\/*[contains(text(), ' posts')]",document).iterateNext().children[0].innerText.replace(/,/g, ''))
-				let followers = parseInt(document.evaluate("\/\/*[contains(text(), ' followers')]",document).iterateNext().children[0].innerText.replace(/,/g, ''))
-				let following = parseInt(document.evaluate("\/\/*[contains(text(), ' following')]",document).iterateNext().children[0].innerText.replace(/,/g, ''))
-				let mutualMessage = document.evaluate(`\/\/*[contains(text(), 'Followed by')]`,document).iterateNext().innerText.split("+")
+				let posts = parseInt(
+					document
+						.evaluate("//*[contains(text(), ' posts')]", document)
+						.iterateNext()
+						.children[0].innerText.replace(/,/g, "")
+				);
+				let followers = parseInt(
+					document
+						.evaluate("//*[contains(text(), ' followers')]", document)
+						.iterateNext()
+						.children[0].innerText.replace(/,/g, "")
+				);
+				let following = parseInt(
+					document
+						.evaluate("//*[contains(text(), ' following')]", document)
+						.iterateNext()
+						.children[0].innerText.replace(/,/g, "")
+				);
+				let mutualMessage = document
+					.evaluate(`\/\/*[contains(text(), 'Followed by')]`, document)
+					.iterateNext()
+					.innerText.split("+");
 				//Usernames cannot have + signs
 				//If there isn't a plus, could have 1 or 2 mutuals but doesn't matter
-				let mutuals = mutualMessage.length == 1 ? 0 : parseInt(mutualMessage[1])
+				let mutuals = (mutualMessage.length = 1 ? 0 : parseInt(mutualMessage[1]));
 
-				return [posts,followers,following,mutuals];
-			})
+				return [posts, followers, following, mutuals];
+			});
 
-			console.log(posts,followers,following,mutuals)
+			console.log(posts, followers, following, mutuals);
+		} catch (err) {
+			console.error(err);
+		}
+	}
+
+	async followUser(username) {
+		try {
+			await this.page.goto(`https://www.instagram.com/${username}/`, {
+				waitUntil: "networkidle2",
+			});
+
+			await randomDelay();
+
+			try {
+				let button = await this.page.waitForSelector(
+					`::-p-xpath(//header[1]//div[text()="Follow"]/parent::*/parent::*)`,
+					{ timeout: 3000 }
+				);
+
+				await randomDelay();
+				await button.click();
+			} catch {
+				let button = await this.page.waitForSelector(
+					`::-p-xpath(//header[1]//div[text()="Follow Back"]/parent::*/parent::*)`,
+					{ timeout: 3000 }
+				);
+
+				await randomDelay();
+				await button.click();
+			}
+			
+			console.log(`Successfully requested follow for ${username}`);
+		} catch (err) {
+			console.error(err);
+		}
+	}
+
+	async unfollowUser(username) {
+		//unfollow if requested or following
+		try {
+			await this.page.goto(`https://www.instagram.com/${username}/`);
+			let button;
+			await randomDelay();
+			try {
+				button = await this.page.waitForSelector(
+					`::-p-xpath(//header[1]//div[text()="Following"]/parent::*/parent::*)`,
+					{ timeout: 3000 }
+				);
+				await randomDelay();
+				await button.click();
+
+				
+
+				let unfollowButton = await this.page.waitForSelector(
+					`::-p-xpath(//span[text()="Unfollow"]/parent::*/parent::*/parent::*/parent::*/parent::*/parent::*/parent::*/parent::*)`,
+					{ timeout: 3000 }
+				);
+				await randomDelay();
+				await unfollowButton.click();
+
+				console.log(`Successfully unfollowed ${username}`);
+			} catch (err) {
+				button = await this.page.waitForSelector(
+					`::-p-xpath(//header[1]//div[text()="Requested"]/parent::*/parent::*)`,
+					{ timeout: 3000 }
+				);
+				await randomDelay();
+				await button.click();
+
+				let unfollowButton = await this.page.waitForSelector(
+					`::-p-xpath(//button[text()="Unfollow"])`,
+					{ timeout: 3000 }
+				);
+				await randomDelay();
+				await unfollowButton.click();
+				console.log(`Successfully unrequested ${username}`);
+			}
 		} catch (err) {
 			console.error(err);
 		}
@@ -207,9 +302,9 @@ class BrowserSession {
 	 * Gets a list of followers of a person you follow.
 	 * As the chance of you having lots of mutuals with a person gets lower the more nonmutual people you see
 	 * Use the limit variable to stop searching.
-	 * 
-	 * 
-	 * @param {string} username 
+	 *
+	 *
+	 * @param {string} username
 	 * @param {number} limit
 	 * @returns {[[string,string]]} - a collection of users and the current follow status with them
 	 * We already know the following & follower status of everyone, so this helps with whether they're requested.
@@ -220,56 +315,57 @@ class BrowserSession {
 				waitUntil: "networkidle2",
 			});
 			//get followers button (wanna make this shorter)
-			let button = await this.page.waitForSelector(`::-p-xpath(//li[contains(., ' followers')])`, {timeout: 1000});
-			if (button === null) {throw new Error("followersButton not found")};
-			console.log("FOUND!")
+			let button = await this.page.waitForSelector(
+				`::-p-xpath(//li[contains(., ' followers')])`,
+				{ timeout: 1000 }
+			);
+			console.log("FOUND!");
 			await randomDelay();
 			await button.click();
 			await randomDelay();
-			
-
-			//get first user
-			let profile = await this.page.$(".x1dm5mii")
-
-			
 
 			let users = await this.page.evaluate(async (limit) => {
 				//the scrollbox is three parents above
-				let users = []
+				let users = [];
 				let notFollowedCount = 0;
 				let openUsers = document.getElementsByClassName("x1dm5mii");
-				if (openUsers.length === 0) {return users};
-				let scrollBox = openUsers[0].parentElement.parentElement.parentElement
-				
+				if (openUsers.length === 0) {
+					return users;
+				}
+				let scrollBox = openUsers[0].parentElement.parentElement.parentElement;
+
 				while (true) {
-					await new Promise(r => setTimeout(r,Math.random()*1000+1000));
+					await new Promise((r) => setTimeout(r, Math.random() * 1000 + 1000));
 					//if no new users appeared from the scrollbox
-					if (openUsers.length - 1 <= users.length) {break}
-					if (notFollowedCount > limit) {break}
-					//skip first user, usually us
-					for (var i=users.length+1;i<openUsers.length;i++) {
-						let button = openUsers[i].getElementsByTagName("button")[0]
-						let buttonContent = button.textContent;
-						if (buttonContent === "Follow") {notFollowedCount++}
-						//trust the process
-						let username = button.parentElement.parentElement.previousSibling.firstChild.firstChild.firstChild.textContent
-						users.push([username,buttonContent])
+					if (openUsers.length - 1 <= users.length) {
+						break;
 					}
-					scrollBox.scrollBy(0,2000);
-					
+					if (notFollowedCount > limit) {
+						break;
+					}
+					//skip first user, usually us
+					for (var i = users.length + 1; i < openUsers.length; i++) {
+						let button = openUsers[i].getElementsByTagName("button")[0];
+						let buttonContent = button.textContent;
+						if (buttonContent === "Follow") {
+							notFollowedCount++;
+						}
+						//trust the process
+						let username =
+							button.parentElement.parentElement.previousSibling.firstChild.firstChild
+								.firstChild.textContent;
+						users.push([username, buttonContent]);
+					}
+					scrollBox.scrollBy(0, 2000);
 				}
 
 				return users;
-				
-			}, limit)
+			}, limit);
 
 			console.log(users);
-		}
-		catch (err) {
+		} catch (err) {
 			console.error(err);
 		}
-		
-
 	}
 
 	/**

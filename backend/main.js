@@ -1,7 +1,8 @@
 const fs = require('fs');
 const { createUserDatabases, updateFollowersAndFollowing, getRandomMutual } = require('./database');
 const BrowserSession = require('./BrowserSession');
-const Automation = require('./Automation')
+const {randomDelay} = require('./helper');
+const Automation = require('./automation')
 /** Instagram login credentials (change accordingly) */
 const USERNAME = "matttang27_hasnolife";
 const PASSWORD = "********";
@@ -23,8 +24,12 @@ const DEBUGLIST = true; // Whether to fetch follower/following list from Instagr
             [followers, following] = await automation.session.fetchFollowersAndFollowing();
         }
 
-        automation.session.viewProfile("matttang27");
-        
+        //automation.session.viewProfile("matttang27");
+        await automation.session.unfollowUser("matttang27");
+        await randomDelay();
+        await automation.session.followUser("g_thankap");
+        await randomDelay();
+        await automation.session.unfollowUser("g_thankap");
         //let mutual = await getRandomMutual(db);
         //console.log(mutual)
         // Update followers and following in the database
