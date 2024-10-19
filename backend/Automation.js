@@ -1,5 +1,5 @@
 const fs = require('fs');
-const { createUserDatabases, updateFollowersAndFollowing, getRandomMutual } = require('./database');
+const AccountDatabase = require('./AccountDatabase');
 const BrowserSession = require('./BrowserSession');
 
 class Automation {
@@ -10,6 +10,7 @@ class Automation {
         this.session = null;
         this.wsEndpoint = null;
         this.debug = debug;
+
     }
 
     /**
@@ -22,13 +23,17 @@ class Automation {
             this.wsEndpoint = fs.readFileSync('../ws.txt', 'utf-8');
 
             // Create the user database
-            this.db = await createUserDatabases(this.username);
+            this.db = new AccountDatabase(this.username);
+
+            await this.db.createUserDatabases();
 
             // Initialize a new browser session
             this.session = new BrowserSession(this.username, this.wsEndpoint, this.db);
 
             // Connect to the browser
             await this.session.connectToBrowser();
+
+            await this.session.loginToInstagram(this.password);
         } catch (err) {
             console.error("Error during initialization:", err);
             throw err;
@@ -41,44 +46,43 @@ class Automation {
      */
     async run() {
         try {
+            /*
+
+            NOTE THAT UPDATING DATA IS NOT ACTION, VIEWING PROFILE IS
+            (ACTION) means to add the action to the action table
+
+            loginToInstagram (ACTION)
+            LOOP:
+            - updateFollowersAndFollowing (ACTION)
+            - find all profiles in database where request_time != ""
+                - if we have a request_time over the LIMIT days, set request_time back to ""
+                    - if they are not in our followers, unfollow / unrequest (ACTION), and blacklist (ACTION)
+            - find all profiles in database where i_follow = 0 and follows_me = 0 and mutuals > MUTUAL_LIMIT and blacklisted = 0
+                - go to each profile (ACTION) (and update data cuz why not), and request follow (ACTION). Set request_time to now
+            - find all profiles in database where i_follow = 0 and follows_me = 0, and last_updated > UPDATE_LIMIT days
+                - visit each profile (ACTION) and update data in account database 
+            - getRandomMutual, visit (ACTION) and run getFollowers (ACTION)
+            */
             let followers, following;
+            while (true) {
+                
+                
 
-            
+                let mutual = await this.db.getRandomMutual();
+                console.log("Random Mutual:", mutual);
 
-            
 
-            if (this.debug) {
-                // If in debug mode, read followers and following from text files
-                followers = fs.readFileSync('./followers.txt', 'utf-8').split(",");
-                following = fs.readFileSync('./following.txt', 'utf-8').split(",");
-            } else {
-                // Log into Instagram and fetch the followers/following lists
-                await this.session.loginToInstagram(this.password);
-                [followers, following] = await this.session.fetchFollowersAndFollowing();
+                await this.session.getFollowers(mutual,20);
             }
-
-            // Optionally: Update followers and following in the database
-            // await updateFollowersAndFollowing(this.db, followers, following);
-
-            //unfollow or unrequest users who haven't accepted / followed back in time.
-            // await checkUnfollow();
-
-            // Get a random mutual from the database
-            let mutual = await getRandomMutual(this.db);
-            console.log("Random Mutual:", mutual);
-
-
-            await this.session.getFollowers(mutual,20);
-
-            //browse users that mutually do not follow, and see if they have enough mutuals
-
-            // You can continue the logic for other tasks, such as:
-            // - Getting followers from a mutual's profile
-            // - Unfollowing people who haven't followed back
-            // - Browsing users that haven't been looked at, etc.
+            
         } catch (err) {
             console.error("An error occurred during the automation process:", err);
         }
+    }
+
+    async updateDatabase() {
+        let [followers, following] = await this.session.fetchFollowersAndFollowing();
+        await this.db.addAction(-1,"fetchLists")
     }
 }
 

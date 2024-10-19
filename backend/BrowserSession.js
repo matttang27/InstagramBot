@@ -1,7 +1,7 @@
 const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 const { randomDelay } = require("./helper");
-const { addAction } = require("./database");
+const { addAction } = require("./AccountDatabase");
 const fs = require("fs");
 const { Browser, Page } = require("puppeteer");
 const { Database } = require("sqlite3");
