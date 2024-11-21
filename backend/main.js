@@ -1,18 +1,14 @@
 
 const Automation = require('./automation')
 /** Instagram login credentials (change accordingly) */
-const USERNAME = "matttang27_hasnolife";
-const PASSWORD = "********";
+
+require('dotenv').config();
+
 
 (async function () {
-    try {
-        const automation = new Automation(USERNAME,PASSWORD,true);
-        await automation.initialize();
-        await automation.run();
-        
-    } catch (err) {
-        console.error("An error occurred:", err);
-    }
+    const automation = new Automation(process.env.USERNAME,process.env.PASSWORD,true);
+    await automation.initialize();
+    await automation.run();
 })();
 
 
@@ -43,4 +39,15 @@ LOOP:
 - find all profiles in database where i_follow = 0 and follows_me = 0, and last_updated > UPDATE_LIMIT days
     - visit each profile (ACTION) and update data in account database 
 - getRandomMutual, visit (ACTION) and run getFollowers (ACTION)
+
+
+
+
+- initialize
+    - create browser session, database
+    - login to instagram
+- run (loop)
+    - update your followers and following in the database, using the instagram api at no cost
+    - find all profiles in database where request_time > LIMIT days
+    - 
 */

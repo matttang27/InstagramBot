@@ -9,6 +9,7 @@
     "@testing-library/user-event": "^13.5.0",
     "app": "file:",
     "chromedriver": "^129.0.4",
+    "dotenv": "^16.4.5",
     "electron": "^33.0.0",
     "playwright": "^1.48.0",
     "playwright-extra": "^4.3.6",
@@ -26,7 +27,8 @@
   "scripts": {
     "start": "concurrently \"npm run react-start\" \"npm run electron-start\"",
     "react-start": "react-scripts start",
-    "electron-start": "electron ."
+    "electron-start": "electron .",
+    "test": "jest"
   },
   "eslintConfig": {
     "extends": [

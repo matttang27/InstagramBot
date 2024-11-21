@@ -1,18 +1,13 @@
 const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 const { randomDelay } = require("./helper");
-const { addAction } = require("./AccountDatabase");
-const fs = require("fs");
-const { Browser, Page } = require("puppeteer");
 const { Database } = require("sqlite3");
 
 // Use the stealth plugin to avoid detection by Instagram
 puppeteer.use(StealthPlugin());
 
 class BrowserSession {
-	constructor(username, wsEndpoint, db) {
-		/** @type {Database} */
-		this.db = db;
+	constructor(username, wsEndpoint) {
 		this.username = username;
 		this.wsEndpoint = wsEndpoint;
 
@@ -58,29 +53,34 @@ class BrowserSession {
 	 */
 	async loginToInstagram(password) {
 		try {
-			// Navigate to Instagram login page
-			await this.page.goto("https://www.instagram.com/accounts/login/", {
-				waitUntil: "networkidle2",
-			});
+			// Navigate to Instagram settings page, to see if it changes to login page
+			//if it does change, sign-in, otherwise already signed in.
+			await this.page.goto("https://www.instagram.com/accounts/edit/", { waitUntil: "networkidle2" });
 
-			// Input username and password
-			await this.page.type('input[name="username"]', this.username);
-			await randomDelay();
-			await this.page.type('input[name="password"]', password);
-			await randomDelay();
+			// Check if we're on the login page
+			const loginRequired = await this.page.$('input[name="username"]');
 
-			// Submit the login form
-			await this.page.click('button[type="submit"]');
-			await randomDelay();
+			if (loginRequired) {
+				console.log("Login required, entering credentials...");
 
-			// Wait for the page to navigate after login
-			await this.page.waitForNavigation({ timeout: 10000, waitUntil: "networkidle2" });
+				// Input username and password
+				await this.page.type('input[name="username"]', this.username);
+				await randomDelay();
+				await this.page.type('input[name="password"]', password);
+				await randomDelay();
 
-			// Record login action in the database
-			addAction(this.db, -1, "login", new Date().toISOString());
+				// Submit the login form
+				await this.page.click('button[type="submit"]');
+				await randomDelay();
 
-			console.log("Instagram login successful.");
-			this.loggedIn = true;
+				// Wait for the page to navigate after login
+				await this.page.waitForNavigation({ timeout: 15000, waitUntil: "networkidle2" })
+
+				console.log("Instagram login successful.");
+				this.loggedIn = true;
+			} else {
+				console.log("Already logged in to Instagram.");
+			}
 		} catch (err) {
 			console.error("Error during Instagram login:", err);
 			throw new Error("Failed to log in to Instagram.");
@@ -93,6 +93,7 @@ class BrowserSession {
 	 */
 	async fetchFollowersAndFollowing() {
 		try {
+			console.log("Fetching list...")
 			const userQueryRes = await this.page.evaluate(async (username) => {
 				const userQueryRes = await fetch(
 					`https://www.instagram.com/web/search/topsearch/?query=${username}`
@@ -185,7 +186,7 @@ class BrowserSession {
 				waitUntil: "networkidle2",
 			});
 
-			let [posts, followers, following, mutuals] = await this.page.evaluate(async () => {
+			let data = await this.page.evaluate(async () => {
 				let posts = parseInt(
 					document
 						.evaluate("//*[contains(text(), ' posts')]", document)
@@ -205,19 +206,20 @@ class BrowserSession {
 						.children[0].innerText.replace(/,/g, "")
 				);
 				let mutualMessage = document
-					.evaluate(`\/\/*[contains(text(), 'Followed by')]`, document)
+					.evaluate(`//*[contains(text(), 'Followed by')]`, document)
 					.iterateNext()
 					.innerText.split("+");
 				//Usernames cannot have + signs
 				//If there isn't a plus, could have 1 or 2 mutuals but doesn't matter
-				let mutuals = (mutualMessage.length = 1 ? 0 : parseInt(mutualMessage[1]));
+				let mutuals = (mutualMessage.length === 1 ? 0 : parseInt(mutualMessage[1]));
 
-				return [posts, followers, following, mutuals];
+				return {posts: posts, followers: followers, following: following, mutuals: mutuals};
 			});
 
-			console.log(posts, followers, following, mutuals);
+			console.log(data);
+			return data;
 		} catch (err) {
-			console.error(err);
+			console.error("Failed to visit", username);
 		}
 	}
 
@@ -277,6 +279,7 @@ class BrowserSession {
 				await unfollowButton.click();
 
 				console.log(`Successfully unfollowed ${username}`);
+				return 'unfollowed'
 			} catch (err) {
 				button = await this.page.waitForSelector(
 					`::-p-xpath(//header[1]//div[text()="Requested"]/parent::*/parent::*)`,
@@ -292,6 +295,7 @@ class BrowserSession {
 				await randomDelay();
 				await unfollowButton.click();
 				console.log(`Successfully unrequested ${username}`);
+				return 'unrequested'
 			}
 		} catch (err) {
 			console.error(err);
@@ -309,8 +313,13 @@ class BrowserSession {
 	 * @returns {[[string,string]]} - a collection of users and the current follow status with them
 	 * We already know the following & follower status of everyone, so this helps with whether they're requested.
 	 */
+	
 	async getFollowers(username, limit) {
+		console.log("Getting followers of mutual")
+		//TODO: Check if this handles people who have requested to follow you
 		try {
+
+			let userData = await this.viewProfile(username) ;
 			await this.page.goto(`https://www.instagram.com/${username}`, {
 				waitUntil: "networkidle2",
 			});
@@ -363,6 +372,7 @@ class BrowserSession {
 			}, limit);
 
 			console.log(users);
+			return users;
 		} catch (err) {
 			console.error(err);
 		}
