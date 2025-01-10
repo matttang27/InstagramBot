@@ -57,7 +57,7 @@ class Automation {
 		//Follow and unfollows
 		this.USER_INTERACTIONS_PER_HOUR = 10;
 		this.USER_INTERACTIONS_PER_DAY = 50;
-		
+
 		this.LOGINS_PER_DAY = 3;
 	}
 
@@ -99,9 +99,9 @@ class Automation {
 			await this.updateDatabase();
 			await this.checkRequests();
 			await this.followEnoughMutuals();
-			// await this.visitProfiles();
-			// await this.addProfiles();
-			// console.log("LOOP FINISHED");
+			await this.visitProfiles();
+			await this.addProfiles();
+			console.log("LOOP FINISHED");
 			await new Promise((r) => setTimeout(r, 2000)); // Pause between iterations
 		}
 	}
@@ -109,7 +109,7 @@ class Automation {
 	/**
 	 * Fetches the followers and following of the user, then
 	 * updates the database with the latest followers and following data.
-	 * 
+	 *
 	 */
 	async updateDatabase() {
 		console.log("Updating Database:");
@@ -152,9 +152,7 @@ class Automation {
 		console.log("Mutual selected:", mutual);
 		let profiles = await this.session.getFollowers(mutual, 20);
 
-		await this.db.setProfil
-
-		
+		await this.db.setProfileStatuses(profiles);
 
 		console.log("Profiles added to the database.");
 	}
@@ -173,8 +171,7 @@ class Automation {
 		}
 
 		await this.db.addAction(username, "view");
-		this.db.db.run(
-			`
+		const query = `
   UPDATE accounts
   SET 
     posts_count = ?,
@@ -183,7 +180,9 @@ class Automation {
     mutuals_count = ?,
     last_updated = ?
   WHERE username = ?;
-`,
+`;
+		await this.db.db.run(
+			query,
 			[
 				data ? data.posts : 0,
 				data ? data.followers : 0,
@@ -204,18 +203,10 @@ class Automation {
 	 * Follows users with sufficient mutual connections who are not yet followed.
 	 */
 	async followEnoughMutuals() {
-
 		const mutuals = await this.db.getMutuals();
+
 		const query = `SELECT * FROM accounts WHERE i_follow = 0 AND follows_me = 0 AND mutuals_count > ? AND blacklisted = 0 AND request_time IS NULL`;
-		const profilesToFollow = await new Promise((resolve, reject) => {
-			this.db.db.all(query, [this.MUTUAL_LIMIT], (err, rows) => {
-				if (err) {
-					reject(err);
-					return;
-				}
-				resolve(rows);
-			});
-		});
+		const profilesToFollow = await this.db.db.all(query);
 
 		console.log(`Profiles to Follow: ${profilesToFollow.map((p) => p.username)}`);
 
@@ -223,10 +214,10 @@ class Automation {
 			try {
 				await this.updateProfile(profile.username);
 				await this.session.followUser(profile.username);
-				await this.db.db.run(
-					`UPDATE accounts SET request_time = ? WHERE username = ?`,
-					[Date.now(), profile.username]
-				);
+				await this.db.db.run(`UPDATE accounts SET request_time = ? WHERE username = ?`, [
+					Date.now(),
+					profile.username,
+				]);
 				await this.db.addAction(profile.username, "follow");
 				console.log(`followed ${profile.username}`);
 			} catch (err) {
@@ -240,15 +231,7 @@ class Automation {
 	 */
 	async visitProfiles() {
 		const query = `SELECT * FROM accounts WHERE i_follow = 0 AND follows_me = 0`;
-		let profilesToUpdate = await new Promise((resolve, reject) => {
-			this.db.db.all(query, (err, rows) => {
-				if (err) {
-					reject(err);
-					return;
-				}
-				resolve(rows);
-			});
-		});
+		let profilesToUpdate = await this.db.db.all(query);
 
 		console.log(`Profiles to Update: ${profilesToUpdate.map((p) => p.username)}`);
 

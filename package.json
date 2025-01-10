@@ -21,6 +21,7 @@
     "react-router-dom": "^6.27.0",
     "react-scripts": "5.0.1",
     "selenium-webdriver": "^4.25.0",
+    "sqlite": "^5.1.1",
     "sqlite3": "^5.1.7",
     "web-vitals": "^2.1.4"
   },

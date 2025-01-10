@@ -119,13 +119,9 @@ describe("AccountDatabase", () => {
       const expiredTime = new Date(Date.now() - (DAYS_LIMIT + 1) * 24 * 60 * 60 * 1000).toISOString();
     
       // Set an old request time for testing expiration
-      await new Promise((resolve, reject) => {
-        db.db.run(
+      await db.db.run(
           "UPDATE accounts SET request_time = ? WHERE username = 'user3' OR username = 'user4'",
-          [expiredTime],
-          (err) => (err ? reject(err) : resolve())
-        );
-      });
+          [expiredTime]);
     
       const expiredUsers = await db.updateExpired(DAYS_LIMIT);
     

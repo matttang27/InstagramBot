@@ -1,4 +1,5 @@
 const sqlite3 = require("sqlite3").verbose();
+const { open } = require('sqlite');
 const fs = require("fs");
 const { Database } = require("sqlite3");
 
@@ -62,12 +63,7 @@ class AccountDatabase {
 	 * @throws Will throw an error if the query fails, such as if the table does not exist.
 	 **/
 	async getTable(tableName) {
-		return new Promise((resolve, reject) => {
-			this.db.all(`SELECT * FROM ${tableName};`, (err, rows) => {
-				if (err) return reject(err);
-				resolve(rows);
-			});
-		});
+		return await this.db.all(`SELECT * FROM ${tableName}`);
 	}
 
 	/**
@@ -86,40 +82,23 @@ class AccountDatabase {
 		const dbName = this.username.replace(/[^a-zA-Z0-9]/g, "_"); // Sanitize username for use in filename
 		const dbPath = `./databases/${dbName}.db`;
 
-		return new Promise((resolve, reject) => {
-			// Create a new directory for databases if it doesn't exist
-			if (!fs.existsSync("./databases")) {
-				fs.mkdirSync("./databases");
-			}
+		if (!fs.existsSync("./databases")) {
+			fs.mkdirSync("./databases");
+		}
 
-			const createTable = (schema) =>
-				new Promise((resolve, reject) => {
-					db.run(schema, (err) => {
-						if (err) reject(err);
-						else resolve();
-					});
-				});
-
-			const db = new sqlite3.Database(dbPath, (err) => {
-				if (err) {
-					console.error("Error opening database:", err.message);
-				}
-				console.log(`Connected to the database for ${this.username}`);
-
-				// Create the required tables
-				db.serialize(async () => {
-					await createTable(GENERAL_SCHEMA);
-					await createTable(ACCOUNTS_SCHEMA);
-					await createTable(HISTORY_SCHEMA);
-					await createTable(ACTIONS_SCHEMA);
-
-					this.db = db;
-
-					console.log("Databases created");
-					resolve(db);
-				});
-			});
+		const db = await open({
+			filename: dbPath,
+			driver: sqlite3.Database
 		});
+
+		await db.exec(GENERAL_SCHEMA);
+		await db.exec(ACCOUNTS_SCHEMA);
+		await db.exec(HISTORY_SCHEMA);
+		await db.exec(ACTIONS_SCHEMA);
+
+		this.db = db;
+		console.log(`Connected to the database for ${this.username}`);
+		return db;
 	}
 
 	/**
@@ -151,121 +130,90 @@ class AccountDatabase {
 	 */
 	async updateFollowersAndFollowing(followersList, followingList) {
 		console.log("Updating followers and following to db");
-		let db = this.db;
 		const followersSet = new Set(followersList);
 		const followingSet = new Set(followingList);
 
 		console.log("followers", followersList.toString());
 		console.log("following", followingList.toString());
 
-		return new Promise((resolve, reject) => {
-			db.serialize(() => {
-				// Get all usernames already in the database to calculate the neitherFollows group
-				db.all("SELECT * FROM accounts", (err, rows) => {
-					if (err) {
-						console.error(err);
-						return;
-					}
-
-					const allUsersInDB = rows.map((row) => row.username);
-
-					// Step 1: Create the groups
-					const mutuallyFollow = followersList.filter((user) => followingSet.has(user));
-					const onlyIFollow = followingList.filter((user) => !followersSet.has(user));
-					const onlyTheyFollow = followersList.filter((user) => !followingSet.has(user));
-					const neitherFollows = allUsersInDB.filter(
-						(user) => !followersSet.has(user) && !followingSet.has(user)
-					);
-
-					//Don't want new followers & new following to be everyone on the first time this is run
-					const origFollowers = new Set(
-						rows.filter((user) => user.follows_me).map((user) => user.username)
-					);
-					const newFollowers =
-						allUsersInDB.length === 0
-							? []
-							: followersList.filter((user) => !origFollowers.has(user));
-					const lostFollowers = [...origFollowers].filter(
-						(user) => !followersSet.has(user)
-					);
-
-					const origFollowing = new Set(
-						rows.filter((user) => user.i_follow).map((user) => user.username)
-					);
-					const newFollowing =
-						allUsersInDB.length === 0
-							? []
-							: followingList.filter((user) => !origFollowing.has(user));
-					const unFollowing = [...origFollowing].filter(
-						(user) => !followingSet.has(user)
-					);
-
-					db.run("BEGIN TRANSACTION");
-
-					const updateAccount = db.prepare(`
-        INSERT INTO accounts (username, follows_me, i_follow)
-        VALUES (?, ?, ?)
-        ON CONFLICT(username) 
-        DO UPDATE SET 
-            follows_me = excluded.follows_me,
-            i_follow = excluded.i_follow
-        `);
-
-					// Step 2: Update based on groups
-
-					// Mutually follow (set both follows_me = 1 and i_follow = 1)
-					mutuallyFollow.forEach((username) => {
-						updateAccount.run([username, 1, 1]);
-					});
-
-					// Only I follow (set follows_me = 0, i_follow = 1)
-					onlyIFollow.forEach((username) => {
-						updateAccount.run([username, 0, 1]);
-					});
-
-					// Only they follow (set follows_me = 1, i_follow = 0)
-					onlyTheyFollow.forEach((username) => {
-						updateAccount.run([username, 1, 0]);
-					});
-
-					// Neither follows (set both follows_me = 0 and i_follow = 0)
-					neitherFollows.forEach((username) => {
-						updateAccount.run([username, 0, 0]);
-					});
-
-					updateAccount.finalize();
-
-					db.run("COMMIT", (err) => {
-						const currentTime = new Date().toISOString(); // get the current timestamp
-						const followersCount = followersList.length; // count of current followers
-						const followingCount = followingList.length; // count of current following
-						const newFollowersStr = newFollowers.join(","); // convert array to comma-separated string
-						const lostFollowersStr = lostFollowers.join(",");
-						const newFollowingStr = newFollowing.join(","); // convert array to comma-separated string
-						const unFollowingStr = unFollowing.join(",");
-
-						db.run(
-							`INSERT INTO history (time, followers_count, following_count, new_followers, lost_followers, new_following, un_following) 
-			VALUES (?, ?, ?, ?, ?, ?, ?)`,
-							[
-								currentTime,
-								followersCount,
-								followingCount,
-								newFollowersStr,
-								lostFollowersStr,
-								newFollowingStr,
-								unFollowingStr,
-							],
-							(err) => {
-								if (err) reject(err);
-								else resolve();
-								console.log("Finished updating followers and following");
-							}
-						);
-					});
-				});
-			});
-		});
+		try {
+			// Get existing accounts
+			const rows = await this.db.all("SELECT * FROM accounts");
+			const allUsersInDB = rows.map(row => row.username);
+	
+			// Calculate groups
+			const mutuallyFollow = followersList.filter(user => followingSet.has(user));
+			const onlyIFollow = followingList.filter(user => !followersSet.has(user));
+			const onlyTheyFollow = followersList.filter(user => !followingSet.has(user));
+			const neitherFollows = allUsersInDB.filter(
+				user => !followersSet.has(user) && !followingSet.has(user)
+			);
+	
+			// Calculate changes
+			const origFollowers = new Set(rows.filter(user => user.follows_me).map(user => user.username));
+			const newFollowers = allUsersInDB.length === 0 ? [] : 
+				followersList.filter(user => !origFollowers.has(user));
+			const lostFollowers = [...origFollowers].filter(user => !followersSet.has(user));
+	
+			const origFollowing = new Set(rows.filter(user => user.i_follow).map(user => user.username));
+			const newFollowing = allUsersInDB.length === 0 ? [] :
+				followingList.filter(user => !origFollowing.has(user));
+			const unFollowing = [...origFollowing].filter(user => !followingSet.has(user));
+	
+			// Begin transaction
+			await this.db.exec('BEGIN TRANSACTION');
+	
+			// Update accounts
+			const stmt = await this.db.prepare(`
+				INSERT INTO accounts (username, follows_me, i_follow)
+				VALUES (?, ?, ?)
+				ON CONFLICT(username) 
+				DO UPDATE SET 
+					follows_me = excluded.follows_me,
+					i_follow = excluded.i_follow
+			`);
+	
+			for (const username of mutuallyFollow) {
+				await stmt.run(username, 1, 1);
+			}
+			for (const username of onlyIFollow) {
+				await stmt.run(username, 0, 1);
+			}
+			for (const username of onlyTheyFollow) {
+				await stmt.run(username, 1, 0);
+			}
+			for (const username of neitherFollows) {
+				await stmt.run(username, 0, 0);
+			}
+	
+			await stmt.finalize();
+	
+			// Add history entry
+			const currentTime = new Date().toISOString();
+			await this.db.run(
+				`INSERT INTO history (
+					time, followers_count, following_count, 
+					new_followers, lost_followers, 
+					new_following, un_following
+				) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				[
+					currentTime,
+					followersList.length,
+					followingList.length,
+					newFollowers.join(","),
+					lostFollowers.join(","),
+					newFollowing.join(","),
+					unFollowing.join(",")
+				]
+			);
+	
+			await this.db.exec('COMMIT');
+			console.log("Finished updating followers and following");
+	
+		} catch (err) {
+			await this.db.exec('ROLLBACK');
+			throw err;
+		}
 	}
 
 	/**
@@ -274,21 +222,10 @@ class AccountDatabase {
 	 * @returns {Promise<string[]>} A promise that resolves with an array of usernames who are mutual followers.
 	 */
 	async getMutuals() {
-		return new Promise((resolve, reject) => {
-			this.db.all(
-				"SELECT username FROM accounts WHERE i_follow = 1 AND follows_me = 1",
-				[],
-				(err, rows) => {
-					if (err) {
-						console.error("Error fetching mutuals:", err);
-						reject(err);
-					} else {
-						const mutuals = rows.map((row) => row.username);
-						resolve(mutuals);
-					}
-				}
-			);
-		});
+		const rows = await this.db.all(
+            "SELECT username FROM accounts WHERE i_follow = 1 AND follows_me = 1"
+        );
+        return rows.map(row => row.username);
 	}
 
 	/**
@@ -318,38 +255,26 @@ class AccountDatabase {
 	 * @throws {Error} If there is an error during the database operation.
 	 */
 	async insertAccounts(profiles) {
-		await new Promise((resolve, reject) => {
-			this.db.serialize(() => {
-				this.db.run("BEGIN TRANSACTION");
+		await this.db.exec('BEGIN TRANSACTION');
+        
+        try {
+            const stmt = await this.db.prepare(`
+                INSERT INTO accounts (username, following_status)
+                VALUES (?, ?)
+                ON CONFLICT(username)
+                DO UPDATE SET following_status = excluded.following_status
+            `);
 
-				// Loop through profiles
-				const updateQuery = `INSERT INTO accounts (username, following_status)
-      VALUES (?, ?)
-      ON CONFLICT(username)
-      DO UPDATE SET 
-        following_status = excluded.following_status;`;
-				profiles.forEach(([username, status]) => {
-					this.db.run(updateQuery, [username, status], (updateErr) => {
-						if (updateErr) {
-							console.error("Error upserting user:", updateErr);
-							this.db.run("ROLLBACK");
-							reject(updateErr);
-						}
-					});
-				});
-
-				// Commit the transaction
-				this.db.run("COMMIT", (commitErr) => {
-					if (commitErr) {
-						console.error("Error committing transaction:", commitErr);
-						this.db.run("ROLLBACK");
-						reject(commitErr);
-					} else {
-						resolve();
-					}
-				});
-			});
-		});
+            for (const [username, status] of profiles) {
+                await stmt.run(username, status);
+            }
+            
+            await stmt.finalize();
+            await this.db.exec('COMMIT');
+        } catch (err) {
+            await this.db.exec('ROLLBACK');
+            throw err;
+        }
 	}
 	
 	
@@ -361,61 +286,42 @@ class AccountDatabase {
 	 */
 	//TODO: Set to null instead of ""? Or add another variable if we have already requested before?
 	async updateExpired(DAYS_LIMIT) {
-		return new Promise((resolve, reject) => {
-			const query = `SELECT * FROM accounts WHERE request_time != ""`;
-			this.db.all(query, [], (err, rows) => {
-				if (err) {
-					console.error("Error fetching accounts:", err);
-					reject(err);
-					return;
-				}
+		const rows = await this.db.all(
+            `SELECT * FROM accounts WHERE request_time != ""`
+        );
 
-				if (rows.length > 0) {
-					let expiredUsers = [];
+        const expiredUsers = [];
+        
+        if (rows.length > 0) {
+            await this.db.exec('BEGIN TRANSACTION');
+            
+            try {
+                for (const user of rows) {
+                    const requestTime = Date.parse(user.request_time);
+                    const timeDifference = Date.now() - requestTime;
 
-					// Start transaction to batch update expired users
-					this.db.run("BEGIN TRANSACTION");
-
-					rows.forEach((user) => {
-						const requestTime = Date.parse(user["request_time"]);
-						const timeDifference = Date.now() - requestTime;
-
-						// Check if the time difference exceeds the DAYS_LIMIT
-						if (timeDifference > DAYS_LIMIT * 24 * 60 * 60 * 1000) {
-							let updateQuery;
-							if (user["follows_me"] === 0) {
-								expiredUsers.push(user["username"]);
-
-								// Update the user's request_time and blacklist status
-								updateQuery = `UPDATE accounts SET request_time = "", blacklisted = 1 WHERE username = ?`;
-							} else {
-								//If they follow us, just reset request_time
-								updateQuery = `UPDATE accounts SET request_time = "" WHERE username = ?`;
-							}
-
-							this.db.run(updateQuery, [user["username"]], (updateErr) => {
-								if (updateErr) {
-									console.error("Error updating user:", updateErr);
-									reject(updateErr);
-								}
-							});
-						}
-					});
-
-					// Commit the transaction after all updates are done
-					this.db.run("COMMIT", (commitErr) => {
-						if (commitErr) {
-							console.error("Error committing transaction:", commitErr);
-							reject(commitErr);
-						} else {
-							resolve(expiredUsers);
-						}
-					});
-				} else {
-					resolve([]); // No expired users found
-				}
-			});
-		});
+                    if (timeDifference > DAYS_LIMIT * 24 * 60 * 60 * 1000) {
+                        if (user.follows_me === 0) {
+                            expiredUsers.push(user.username);
+                            await this.db.run(
+                                `UPDATE accounts SET request_time = "", blacklisted = 1 WHERE username = ?`,
+                                user.username
+                            );
+                        } else {
+                            await this.db.run(
+                                `UPDATE accounts SET request_time = "" WHERE username = ?`,
+                                user.username
+                            );
+                        }
+                    }
+                }
+                await this.db.exec('COMMIT');
+            } catch (err) {
+                await this.db.exec('ROLLBACK');
+                throw err;
+            }
+        }
+        return expiredUsers;
 	}
 
 	/**
@@ -426,71 +332,34 @@ class AccountDatabase {
 	 * @returns {Promise<void>}
 	 */
 	async addAction(username, action_type) {
-		return new Promise((resolve, reject) => {
-			let time = Date.now().toString();
-			const query = `INSERT INTO actions (account_username, action_type, time) VALUES (?, ?, ?)`;
-
-			this.db.run(query, [username, action_type, time], function (err) {
-				if (err) {
-					console.error("Error adding action:", err.message);
-					reject(err);
-					return;
-				}
-				console.log(`Action added: ${action_type} for account_id ${username} at ${time}`);
-				resolve();
-			});
-		});
+		const time = Date.now().toString();
+        await this.db.run(
+            `INSERT INTO actions (account_username, action_type, time) VALUES (?, ?, ?)`,
+            [username, action_type, time]
+        );
+        console.log(`Action added: ${action_type} for account_id ${username} at ${time}`);
 	}
 
 	
 	async setProfileStatuses(profiles) {
-		return new Promise((resolve, reject) => {
-			this.db.serialize(() => {
-				this.db.run("BEGIN TRANSACTION;", (beginErr) => {
-					if (beginErr) {
-						reject(beginErr);
-					}
-				});
+		await this.db.exec('BEGIN TRANSACTION');
+        
+        try {
+            const stmt = await this.db.prepare(
+                `UPDATE accounts SET following_status = ? WHERE username = ?`
+            );
 
-				const updateQuery = `UPDATE accounts SET following_status = ? WHERE username = ?`;
-				const stmt = this.db.prepare(updateQuery);
+            for (const [username, status] of profiles) {
+                await stmt.run(status, username);
+                console.log(`Updated status for ${username} to ${status}.`);
+            }
 
-				let hasError = false; // Track if any error occurs during the updates
-
-				profiles.forEach(([username, status]) => {
-					stmt.run(status, username, (err) => {
-						if (err) {
-							console.error(`Error updating status for ${username}:`, err.message);
-							hasError = true;
-						} else {
-							console.log(`Updated status for ${username} to ${status}.`);
-						}
-					});
-				});
-
-				stmt.finalize((finalizeErr) => {
-					if (finalizeErr) {
-						console.error("Error finalizing statement:", finalizeErr.message);
-						reject(finalizeErr);
-						return;
-					}
-
-					// Commit the transaction
-					this.db.run("COMMIT;", (commitErr) => {
-						if (commitErr || hasError) {
-							console.error(
-								"Error committing transaction:",
-								commitErr?.message || "Errors occurred during updates."
-							);
-							reject(commitErr || new Error("Some updates failed."));
-						} else {
-							console.log("All updates completed successfully.");
-							resolve();
-						}
-					});
-				});
-			});
-		});
+            await stmt.finalize();
+            await this.db.exec('COMMIT');
+        } catch (err) {
+            await this.db.exec('ROLLBACK');
+            throw err;
+        }
 	}
 }
 
