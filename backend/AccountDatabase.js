@@ -52,17 +52,35 @@ class AccountDatabase {
 		this.db = null;
 	}
 
+	/**
+	 * Retrieves all rows from a specified table in the database.
+	 *
+	 * @param {string} tableName - The name of the table to query.
+	 * @returns {Promise<Object[]>} A promise that resolves with an array of rows from the table, where each row is represented as an object.
+	 *                              If the table is empty, resolves with an empty array.
+	 *                              If an error occurs during the query, the promise is rejected with the error.
+	 * @throws Will throw an error if the query fails, such as if the table does not exist.
+	 **/
 	async getTable(tableName) {
 		return new Promise((resolve, reject) => {
 			this.db.all(`SELECT * FROM ${tableName};`, (err, rows) => {
-			  if (err) return reject(err);
-			  resolve(rows);
+				if (err) return reject(err);
+				resolve(rows);
 			});
-		  });
+		});
 	}
 
 	/**
-	 * Creates the databases for the username (if it doesn't exist)
+	 * Creates the databases for the current user (if they don't already exist).
+	 *
+	 * - The function sanitizes the username to generate a valid database file name.
+	 * - Ensures that the `./databases` directory exists.
+	 * - Creates a SQLite database file and initializes required tables using predefined schemas.
+	 * - If the database or tables already exist, it does nothing.
+	 *
+	 * @returns {Promise<sqlite3.Database>} A promise that resolves with the SQLite database instance.
+	 *
+	 * @throws {Error} If there are issues with directory creation, database connection, or table initialization.
 	 */
 	async createUserDatabases() {
 		const dbName = this.username.replace(/[^a-zA-Z0-9]/g, "_"); // Sanitize username for use in filename
@@ -75,12 +93,12 @@ class AccountDatabase {
 			}
 
 			const createTable = (schema) =>
-                new Promise((resolve, reject) => {
-                    db.run(schema, (err) => {
-                        if (err) reject(err);
-                        else resolve();
-                    });
-                });
+				new Promise((resolve, reject) => {
+					db.run(schema, (err) => {
+						if (err) reject(err);
+						else resolve();
+					});
+				});
 
 			const db = new sqlite3.Database(dbPath, (err) => {
 				if (err) {
@@ -88,18 +106,16 @@ class AccountDatabase {
 				}
 				console.log(`Connected to the database for ${this.username}`);
 
-				
-
 				// Create the required tables
 				db.serialize(async () => {
 					await createTable(GENERAL_SCHEMA);
-                    await createTable(ACCOUNTS_SCHEMA);
-                    await createTable(HISTORY_SCHEMA);
-                    await createTable(ACTIONS_SCHEMA);
+					await createTable(ACCOUNTS_SCHEMA);
+					await createTable(HISTORY_SCHEMA);
+					await createTable(ACTIONS_SCHEMA);
 
 					this.db = db;
 
-					console.log("Databases created")
+					console.log("Databases created");
 					resolve(db);
 				});
 			});
@@ -107,13 +123,31 @@ class AccountDatabase {
 	}
 
 	/**
-	 * Updates the databases:
-	 * - total # of followers & following & new changes in history
-	 * - follower / following status for each user in accounts
+	 * Updates the database with the current follower and following information:
+	 * - Updates the `accounts` table to reflect the follower/following status for each user.
+	 * - Tracks historical changes in follower and following relationships in the `history` table.
 	 *
-	 * @param {string[]} followersList
-	 * @param {string[]} followingList
-	 * @returns {Promise<void>}
+	 * The function calculates:
+	 * 1. **Accounts groups**:
+	 *    - *Mutual*
+	 *    - *onlyIFollow*
+	 *    - *onlyTheyFollow*
+	 *    - *neitherFollow*
+	 * 2. **History groups**:
+	 *    - *newFollowers*
+	 *    - *lostFollowers*
+	 *    - *newFollowing*
+	 *    - *unFollowing*
+	 *
+	 * @param {string[]} followersList - List of usernames currently following the user.
+	 * @param {string[]} followingList - List of usernames the user is currently following.
+	 * @returns {Promise<void>} Resolves when the database has been successfully updated.
+	 * @throws {Error} Rejects if there is any error during the update process.
+	 *
+	 *  @example
+	 * const followersList = ['user1', 'user2', 'user3'];
+	 * const followingList = ['user2', 'user3', 'user4'];
+	 * await updateFollowersAndFollowing(followersList, followingList);
 	 */
 	async updateFollowersAndFollowing(followersList, followingList) {
 		console.log("Updating followers and following to db");
@@ -123,18 +157,6 @@ class AccountDatabase {
 
 		console.log("followers", followersList.toString());
 		console.log("following", followingList.toString());
-
-		//4 groups for accounts:
-		//Mutual
-		//onlyIFollow
-		//onlyTheyFollow
-		//neitherFollow - but still already in database
-
-		//4 groups for history:
-		//newFollowers
-		//lostFollowers
-		//newFollowing
-		//lostFollowing
 
 		return new Promise((resolve, reject) => {
 			db.serialize(() => {
@@ -233,47 +255,111 @@ class AccountDatabase {
 								lostFollowersStr,
 								newFollowingStr,
 								unFollowingStr,
-							]
-						, (err) => {
-							if (err) reject(err);
-							else resolve();
-							console.log("Finished updating followers and following");
-						});
+							],
+							(err) => {
+								if (err) reject(err);
+								else resolve();
+								console.log("Finished updating followers and following");
+							}
+						);
 					});
-
-					
 				});
 			});
-
-			
-			
 		});
 	}
 
 	/**
-	 * @returns {Promise<string>} the username of the random mutual
+	 * Retrieves a list of mutual followers (users who follow you and you follow back).
+	 *
+	 * @returns {Promise<string[]>} A promise that resolves with an array of usernames who are mutual followers.
 	 */
-	async getRandomMutual() {
+	async getMutuals() {
 		return new Promise((resolve, reject) => {
-
-			this.db.all("SELECT username FROM accounts WHERE i_follow = 1 AND follows_me = 1", [], (err, rows) => {
-				if (err) {
-					console.error("Error fetching:", err);
-					reject(err);
+			this.db.all(
+				"SELECT username FROM accounts WHERE i_follow = 1 AND follows_me = 1",
+				[],
+				(err, rows) => {
+					if (err) {
+						console.error("Error fetching mutuals:", err);
+						reject(err);
+					} else {
+						const mutuals = rows.map((row) => row.username);
+						resolve(mutuals);
+					}
 				}
-				
-				
-				if (rows.length > 0) {
-					let mutuals = rows.map(account => account.username);
-					let randomMutual = mutuals[Math.floor(Math.random() * mutuals.length)];
-					resolve(randomMutual);
-				} else {
-					resolve(null); // No mutuals found
-				}
-			});
+			);
 		});
 	}
 
+	/**
+	 * Retrieves a random mutual follower (a user who follows you and you follow back).
+	 *
+	 * @returns {Promise<string>} A promise that resolves with the username of a random mutual follower.
+	 */
+	async getRandomMutual() {
+		try {
+			const mutuals = await this.getMutuals();
+			if (mutuals.length === 0) {
+				return null;
+			}
+			const randomIndex = Math.floor(Math.random() * mutuals.length);
+			return mutuals[randomIndex];
+		} catch (err) {
+			console.error("Error fetching random mutual:", err);
+			throw err;
+		}
+	}
+	
+	/**
+	 * Inserts or updates account information in the database.
+	 *
+	 * @param {Array.<[string, string]>} profiles - An array of profiles, where each profile is represented as a tuple [username, status].
+	 * @returns {Promise<void>} A promise that resolves when the operation is complete.
+	 * @throws {Error} If there is an error during the database operation.
+	 */
+	async insertAccounts(profiles) {
+		await new Promise((resolve, reject) => {
+			this.db.serialize(() => {
+				this.db.run("BEGIN TRANSACTION");
+
+				// Loop through profiles
+				const updateQuery = `INSERT INTO accounts (username, following_status)
+      VALUES (?, ?)
+      ON CONFLICT(username)
+      DO UPDATE SET 
+        following_status = excluded.following_status;`;
+				profiles.forEach(([username, status]) => {
+					this.db.run(updateQuery, [username, status], (updateErr) => {
+						if (updateErr) {
+							console.error("Error upserting user:", updateErr);
+							this.db.run("ROLLBACK");
+							reject(updateErr);
+						}
+					});
+				});
+
+				// Commit the transaction
+				this.db.run("COMMIT", (commitErr) => {
+					if (commitErr) {
+						console.error("Error committing transaction:", commitErr);
+						this.db.run("ROLLBACK");
+						reject(commitErr);
+					} else {
+						resolve();
+					}
+				});
+			});
+		});
+	}
+	
+	
+
+	/**
+	 * searches for expired follow requests, setting request_time to "". If they don't follow us, blacklist and add to expiredUsers.
+	 * @param {number} DAYS_LIMIT
+	 * @returns {[string]} a list of users which did not follow back.
+	 */
+	//TODO: Set to null instead of ""? Or add another variable if we have already requested before?
 	async updateExpired(DAYS_LIMIT) {
 		return new Promise((resolve, reject) => {
 			const query = `SELECT * FROM accounts WHERE request_time != ""`;
@@ -356,18 +442,21 @@ class AccountDatabase {
 		});
 	}
 
+	
 	async setProfileStatuses(profiles) {
 		return new Promise((resolve, reject) => {
 			this.db.serialize(() => {
 				this.db.run("BEGIN TRANSACTION;", (beginErr) => {
-					if (beginErr) {reject(beginErr)}
+					if (beginErr) {
+						reject(beginErr);
+					}
 				});
-	
+
 				const updateQuery = `UPDATE accounts SET following_status = ? WHERE username = ?`;
 				const stmt = this.db.prepare(updateQuery);
-	
+
 				let hasError = false; // Track if any error occurs during the updates
-	
+
 				profiles.forEach(([username, status]) => {
 					stmt.run(status, username, (err) => {
 						if (err) {
@@ -378,18 +467,21 @@ class AccountDatabase {
 						}
 					});
 				});
-	
+
 				stmt.finalize((finalizeErr) => {
 					if (finalizeErr) {
 						console.error("Error finalizing statement:", finalizeErr.message);
 						reject(finalizeErr);
 						return;
 					}
-	
+
 					// Commit the transaction
 					this.db.run("COMMIT;", (commitErr) => {
 						if (commitErr || hasError) {
-							console.error("Error committing transaction:", commitErr?.message || "Errors occurred during updates.");
+							console.error(
+								"Error committing transaction:",
+								commitErr?.message || "Errors occurred during updates."
+							);
 							reject(commitErr || new Error("Some updates failed."));
 						} else {
 							console.log("All updates completed successfully.");
@@ -400,7 +492,6 @@ class AccountDatabase {
 			});
 		});
 	}
-	
 }
 
 module.exports = AccountDatabase;

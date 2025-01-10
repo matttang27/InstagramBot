@@ -99,9 +99,9 @@ class Automation {
 			await this.updateDatabase();
 			await this.checkRequests();
 			await this.followEnoughMutuals();
-			await this.visitProfiles();
-			await this.addProfiles();
-			console.log("LOOP FINISHED");
+			// await this.visitProfiles();
+			// await this.addProfiles();
+			// console.log("LOOP FINISHED");
 			await new Promise((r) => setTimeout(r, 2000)); // Pause between iterations
 		}
 	}
@@ -143,43 +143,18 @@ class Automation {
 	async addProfiles() {
 		console.log("Adding profiles..");
 		let mutual = await this.db.getRandomMutual();
+
+		if (!mutual) {
+			console.log("No mutuals found.");
+			return;
+		}
+
 		console.log("Mutual selected:", mutual);
 		let profiles = await this.session.getFollowers(mutual, 20);
 
-		const db = this.db.db;
+		await this.db.setProfil
 
-		await new Promise((resolve, reject) => {
-			db.serialize(() => {
-				db.run("BEGIN TRANSACTION");
-
-				// Loop through profiles
-				const updateQuery = `INSERT INTO accounts (username, following_status)
-      VALUES (?, ?)
-      ON CONFLICT(username)
-      DO UPDATE SET 
-        following_status = excluded.following_status;`;
-				profiles.forEach(([username, status]) => {
-					db.run(updateQuery, [username, status], (updateErr) => {
-						if (updateErr) {
-							console.error("Error upserting user:", updateErr);
-							db.run("ROLLBACK");
-							reject(updateErr);
-						}
-					});
-				});
-
-				// Commit the transaction
-				db.run("COMMIT", (commitErr) => {
-					if (commitErr) {
-						console.error("Error committing transaction:", commitErr);
-						db.run("ROLLBACK");
-						reject(commitErr);
-					} else {
-						resolve();
-					}
-				});
-			});
-		});
+		
 
 		console.log("Profiles added to the database.");
 	}
@@ -229,7 +204,9 @@ class Automation {
 	 * Follows users with sufficient mutual connections who are not yet followed.
 	 */
 	async followEnoughMutuals() {
-		const query = `SELECT * FROM accounts WHERE i_follow = 0 AND follows_me = 0 AND mutuals_count > ? AND blacklisted = 0`;
+
+		const mutuals = await this.db.getMutuals();
+		const query = `SELECT * FROM accounts WHERE i_follow = 0 AND follows_me = 0 AND mutuals_count > ? AND blacklisted = 0 AND request_time IS NULL`;
 		const profilesToFollow = await new Promise((resolve, reject) => {
 			this.db.db.all(query, [this.MUTUAL_LIMIT], (err, rows) => {
 				if (err) {
@@ -246,6 +223,10 @@ class Automation {
 			try {
 				await this.updateProfile(profile.username);
 				await this.session.followUser(profile.username);
+				await this.db.db.run(
+					`UPDATE accounts SET request_time = ? WHERE username = ?`,
+					[Date.now(), profile.username]
+				);
 				await this.db.addAction(profile.username, "follow");
 				console.log(`followed ${profile.username}`);
 			} catch (err) {

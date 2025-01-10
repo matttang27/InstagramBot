@@ -1,12 +1,11 @@
 
-const Automation = require('./automation')
-/** Instagram login credentials (change accordingly) */
+const Automation = require('./Automation')
 
 require('dotenv').config();
 
-
 (async function () {
-    const automation = new Automation(process.env.USERNAME,process.env.PASSWORD,true);
+    console.log(process.env.INSTAGRAM_USERNAME)
+    const automation = new Automation(process.env.INSTAGRAM_USERNAME,process.env.INSTAGRAM_PASSWORD,true);
     await automation.initialize();
     await automation.run();
 })();

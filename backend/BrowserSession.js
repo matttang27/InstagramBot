@@ -1,10 +1,7 @@
 const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 const { randomDelay } = require("./helper");
-const { Database } = require("sqlite3");
 
-// Use the stealth plugin to avoid detection by Instagram
-puppeteer.use(StealthPlugin());
 
 class BrowserSession {
 	constructor(username, wsEndpoint) {
@@ -53,6 +50,10 @@ class BrowserSession {
 	 */
 	async loginToInstagram(password) {
 		try {
+
+			if (!password || typeof password !== 'string') {
+				throw new Error('Password must be a non-empty string');
+			}
 			// Navigate to Instagram settings page, to see if it changes to login page
 			//if it does change, sign-in, otherwise already signed in.
 			await this.page.goto("https://www.instagram.com/accounts/edit/", { waitUntil: "networkidle2" });
@@ -250,6 +251,7 @@ class BrowserSession {
 			}
 			
 			console.log(`Successfully requested follow for ${username}`);
+			await new Promise(r => setTimeout(r,2000));
 		} catch (err) {
 			console.error(err);
 		}
